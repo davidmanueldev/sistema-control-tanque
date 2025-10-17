@@ -1,0 +1,75 @@
+{
+  "tanque": {
+    "actual": {
+      "nivel": 67.5,
+      "estado_bomba": true,
+      "timestamp": "2025-10-17T18:39:00.000Z",
+      "sensor_temperatura": 24.8,
+      "presion": 1.4,
+      "flujo": 8.5,
+      "ph": 7.2,
+      "conductividad": 450
+    },
+    "historico": {
+      "2025-10-17T18:00:00Z": {
+        "nivel": 45.0,
+        "estado_bomba": false,
+        "timestamp": "2025-10-17T18:00:00.000Z"
+      },
+      "2025-10-17T18:15:00Z": {
+        "nivel": 55.2,
+        "estado_bomba": true,
+        "timestamp": "2025-10-17T18:15:00.000Z"
+      },
+      "2025-10-17T18:30:00Z": {
+        "nivel": 62.8,
+        "estado_bomba": true,
+        "timestamp": "2025-10-17T18:30:00.000Z"
+      }
+    }
+  },
+  "config": {
+    "alertas_habilitadas": true,
+    "nivel_minimo": 15,
+    "nivel_maximo": 90,
+    "intervalo_actualizacion": 5000,
+    "email_alertas": "admin@example.com",
+    "modo_automatico": true,
+    "horario_llenado": {
+      "inicio": "06:00",
+      "fin": "22:00"
+    }
+  },
+  "sensores": {
+    "calibracion": {
+      "nivel": {
+        "offset": 0,
+        "factor": 1.0,
+        "ultima_calibracion": "2025-10-10T10:00:00.000Z"
+      },
+      "presion": {
+        "offset": 0.1,
+        "factor": 1.02,
+        "ultima_calibracion": "2025-10-10T10:00:00.000Z"
+      }
+    },
+    "mantenimiento": {
+      "proximo_cambio_filtro": "2025-11-15T00:00:00.000Z",
+      "ultimo_mantenimiento": "2025-09-15T10:00:00.000Z"
+    }
+  },
+  "usuarios": {
+    "admin": {
+      "nombre": "Administrador",
+      "email": "admin@example.com",
+      "permisos": ["lectura", "escritura", "configuracion"],
+      "ultimo_acceso": "2025-10-17T18:39:00.000Z"
+    },
+    "usuario1": {
+      "nombre": "Usuario Lectura",
+      "email": "user@example.com",
+      "permisos": ["lectura"],
+      "ultimo_acceso": "2025-10-17T15:20:00.000Z"
+    }
+  }
+}

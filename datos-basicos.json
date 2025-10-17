@@ -1,0 +1,15 @@
+{
+  "tanque": {
+    "actual": {
+      "nivel": 67.5,
+      "estado_bomba": true,
+      "timestamp": "2025-10-17T18:39:00.000Z"
+    }
+  },
+  "config": {
+    "alertas_habilitadas": true,
+    "nivel_minimo": 15,
+    "nivel_maximo": 90,
+    "intervalo_actualizacion": 5000
+  }
+}

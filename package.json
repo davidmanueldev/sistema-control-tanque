@@ -1,0 +1,27 @@
+{
+  "name": "sistema-control-tanque",
+  "version": "1.0.0",
+  "description": "Sistema de control y monitoreo de tanque de agua con Firebase",
+  "main": "index.html",
+  "scripts": {
+    "start": "firebase serve",
+    "deploy": "firebase deploy",
+    "build": "echo 'Build complete'",
+    "dev": "firebase serve --host 0.0.0.0 --port 5000"
+  },
+  "keywords": [
+    "firebase",
+    "tank-control",
+    "iot",
+    "water-management"
+  ],
+  "author": "David Manuel",
+  "license": "MIT",
+  "devDependencies": {
+    "firebase-tools": "^12.7.0"
+  },
+  "dependencies": {
+    "@dataconnect/generated": "file:src/dataconnect-generated",
+    "firebase": "^10.5.0"
+  }
+}

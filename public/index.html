@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Control de Tanque 💧</title>
+  
+  <!-- Firebase SDK v10+ (Modular) -->
+  <script type="module">
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js'
+    import { getDatabase, ref, onValue, set } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js'
+
+    // Configuración de Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCGo5VbKXDW1GNcejA66NDr0bemrq5glKA",
+      authDomain: "shiro-mierdas.firebaseapp.com",
+      databaseURL: "https://shiro-mierdas-default-rtdb.firebaseio.com",
+      projectId: "shiro-mierdas",
+      storageBucket: "shiro-mierdas.firebasestorage.app",
+      messagingSenderId: "510647911107",
+      appId: "1:510647911107:web:3e18610d8455cb0fed1876"
+    };
+
+    // Inicializar Firebase
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+
+    // Variables globales del sistema
+    let isConnected = false;
+    let lastUpdate = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+
+    // Estado del sistema
+    const systemState = {
+      waterLevel: 0,
+      pumpStatus: false,
+      lastUpdated: null,
+      connectionStatus: 'disconnected',
+      alerts: []
+    };
+
+    // Función para mostrar el estado de conexión
+    function updateConnectionStatus(status) {
+      const statusIndicator = document.getElementById('connectionStatus');
+      const statusText = document.getElementById('connectionText');
+      
+      statusIndicator.className = `connection-indicator ${status}`;
+      
+      switch(status) {
+        case 'connected':
+          statusText.textContent = 'Conectado';
+          isConnected = true;
+          reconnectAttempts = 0;
+          break;
+        case 'disconnected':
+          statusText.textContent = 'Desconectado';
+          isConnected = false;
+          break;
+        case 'connecting':
+          statusText.textContent = 'Conectando...';
+          break;
+        case 'error':
+          statusText.textContent = 'Error de conexión';
+          break;
+      }
+    }
+
+    // Función para registrar logs del sistema
+    function logSystemEvent(event, data = null) {
+      const timestamp = new Date().toISOString();
+      const logEntry = {
+        timestamp,
+        event,
+        data: data || {},
+        level: 'info'
+      };
+
+      // Guardar en Firebase
+      if (isConnected) {
+        const logsRef = ref(database, 'logs');
+        push(logsRef, logEntry).catch(error => {
+          console.error('Error al guardar log:', error);
+        });
+      }
+
+      // Mostrar en consola
+      console.log(`[${timestamp}] ${event}:`, data);
+    }
+
+    // Función para manejar alertas
+    function handleAlert(type, message) {
+      const alert = {
+        type,
+        message,
+        timestamp: new Date().toISOString(),
+        id: Date.now()
+      };
+
+      systemState.alerts.unshift(alert);
+      
+      // Mantener solo las últimas 10 alertas
+      if (systemState.alerts.length > 10) {
+        systemState.alerts = systemState.alerts.slice(0, 10);
+      }
+
+      // Mostrar alerta visual
+      showAlert(alert);
+      
+      // Log del evento
+      logSystemEvent('alert_generated', alert);
+    }
+
+    // Función para mostrar alertas visuales
+    function showAlert(alert) {
+      const alertsContainer = document.getElementById('alertsContainer');
+      const alertElement = document.createElement('div');
+      alertElement.className = `alert alert-${alert.type}`;
+      alertElement.innerHTML = `
+        <span class="alert-icon">${alert.type === 'warning' ? '⚠️' : alert.type === 'error' ? '❌' : 'ℹ️'}</span>
+        <span class="alert-message">${alert.message}</span>
+        <span class="alert-time">${new Date(alert.timestamp).toLocaleTimeString()}</span>
+        <button class="alert-close" onclick="this.parentElement.remove()">×</button>
+      `;
+      
+      alertsContainer.appendChild(alertElement);
+      
+      // Auto-remove after 10 seconds
+      setTimeout(() => {
+        if (alertElement.parentNode) {
+          alertElement.remove();
+        }
+      }, 10000);
+    }
+
+    // Función para actualizar la interfaz
+    function updateInterface(data) {
+      console.log('🎨 Actualizando interfaz con datos:', data);
+      
+      if (!data) {
+        console.log('⚠️ No hay datos para actualizar la interfaz');
+        return;
+      }
+
+      // Trabajar directamente con tu estructura: nivel y estado_bomba
+      const nivel = data.nivel || 0;
+      const estadoBomba = data.estado_bomba || false;
+      const timestamp = new Date().toISOString();
+
+      console.log(`📊 Procesando: Nivel=${nivel}%, Bomba=${estadoBomba ? 'ON' : 'OFF'}`);
+
+      // Actualizar estado del sistema
+      systemState.waterLevel = nivel;
+      systemState.pumpStatus = estadoBomba;
+      systemState.lastUpdated = timestamp;
+
+      // Actualizar elementos visuales
+      const waterLevelElement = document.getElementById('waterLevel');
+      const levelValueElement = document.getElementById('levelValue');
+      const lastUpdateElement = document.getElementById('lastUpdate');
+      
+      if (waterLevelElement) {
+        waterLevelElement.style.height = `${nivel}%`;
+        console.log(`✅ Nivel visual actualizado: ${nivel}%`);
+      } else {
+        console.error('❌ Elemento waterLevel no encontrado');
+      }
+      
+      if (levelValueElement) {
+        levelValueElement.textContent = `${nivel.toFixed(1)}%`;
+        console.log(`✅ Valor de nivel actualizado: ${nivel.toFixed(1)}%`);
+      } else {
+        console.error('❌ Elemento levelValue no encontrado');
+      }
+      
+      if (lastUpdateElement) {
+        lastUpdateElement.textContent = new Date().toLocaleString();
+        console.log('✅ Timestamp actualizado');
+      } else {
+        console.error('❌ Elemento lastUpdate no encontrado');
+      }
+
+      // Estado de la bomba
+      const motorLight = document.getElementById('motorLight');
+      const waterStream = document.getElementById('waterStream');
+      const pumpValue = document.getElementById('pumpValue');
+
+      if (motorLight) {
+        motorLight.classList.toggle('active', estadoBomba);
+        console.log(`✅ Motor light: ${estadoBomba ? 'ON' : 'OFF'}`);
+      }
+      
+      if (waterStream) {
+        waterStream.classList.toggle('active', estadoBomba);
+        console.log(`✅ Water stream: ${estadoBomba ? 'ON' : 'OFF'}`);
+      }
+      
+      if (pumpValue) {
+        pumpValue.textContent = estadoBomba ? 'ENCENDIDA' : 'APAGADA';
+        pumpValue.className = `status-value pump-${estadoBomba ? 'on' : 'off'}`;
+        console.log(`✅ Pump status: ${estadoBomba ? 'ENCENDIDA' : 'APAGADA'}`);
+      }
+
+      // Grifo (opuesto a la bomba para mostrar drenaje)
+      const faucetHandle = document.getElementById('faucetHandle');
+      const faucetDrops = document.getElementById('faucetDrops');
+      
+      if (faucetHandle) {
+        faucetHandle.classList.toggle('active', !estadoBomba);
+      }
+      
+      if (faucetDrops) {
+        faucetDrops.classList.toggle('active', !estadoBomba);
+      }
+
+      // Verificar alertas
+      checkAlerts(nivel, estadoBomba);
+
+      lastUpdate = Date.now();
+      
+      // Log de datos recibidos
+      console.log('✅ Interfaz actualizada completamente:', { nivel, estadoBomba, timestamp });
+    }
+
+    // Función para verificar alertas del sistema
+    function checkAlerts(nivel, estadoBomba) {
+      // Alerta de nivel bajo
+      if (nivel < 10 && !estadoBomba) {
+        handleAlert('warning', 'Nivel crítico del tanque - Se recomienda encender la bomba');
+      }
+      
+      // Alerta de nivel muy alto
+      if (nivel > 95 && estadoBomba) {
+        handleAlert('warning', 'Tanque casi lleno - Se recomienda apagar la bomba');
+      }
+
+      // Alerta de posible fuga (nivel bajando muy rápido)
+      if (systemState.waterLevel > 0 && nivel < systemState.waterLevel - 5) {
+        handleAlert('error', 'Posible fuga detectada - Nivel bajando rápidamente');
+      }
+    }
+
+    // Función principal para conectar a Firebase
+    async function connectToFirebase() {
+      try {
+        updateConnectionStatus('connecting');
+        logSystemEvent('connecting_to_firebase');
+        console.log('🔄 Iniciando conexión a Firebase...');
+        
+        // Verificar que Firebase esté inicializado
+        if (!database) {
+          throw new Error('Database no inicializada');
+        }
+        
+        // Conectar directamente sin autenticación
+        console.log('✅ Firebase inicializado, iniciando listeners...');
+        startDataListener();
+
+      } catch (error) {
+        console.error('❌ Error de conexión a Firebase:', error);
+        updateConnectionStatus('error');
+        logSystemEvent('connection_error', { error: error.message });
+        
+        // Intentar reconectar
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          console.log(`🔄 Reintento ${reconnectAttempts}/${maxReconnectAttempts} en ${5000 * reconnectAttempts}ms`);
+          setTimeout(() => {
+            connectToFirebase();
+          }, 5000 * reconnectAttempts); // Backoff exponencial
+        }
+      }
+    }
+
+    // Función para iniciar el listener de datos
+    function startDataListener() {
+      console.log('🔄 Configurando listeners de datos...');
+      
+      try {
+        // Listener principal de datos del tanque
+        const tankRef = ref(database, 'tanque/actual');
+        
+        onValue(tankRef, (snapshot) => {
+          const datos = snapshot.val();
+          console.log('📡 Datos recibidos:', datos);
+          
+          if (datos) {
+            updateInterface(datos);
+            logSystemEvent('data_received', datos);
+            
+            // Marcar como conectado si recibimos datos
+            if (!isConnected) {
+              updateConnectionStatus('connected');
+              logSystemEvent('firebase_connected');
+              isConnected = true;
+              reconnectAttempts = 0; // Reset intentos de reconexión
+            }
+          } else {
+            console.log('⚠️ No hay datos en tanque/actual');
+            handleAlert('warning', 'No hay datos disponibles en el servidor');
+          }
+        }, (error) => {
+          console.error('❌ Error al leer datos:', error);
+          updateConnectionStatus('error');
+          handleAlert('error', `Error al obtener datos: ${error.message}`);
+          isConnected = false;
+        });
+
+        // Monitor de conexión de Firebase
+        const connectedRef = ref(database, '.info/connected');
+        onValue(connectedRef, (snapshot) => {
+          const connected = snapshot.val();
+          console.log('🔗 Estado de conexión Firebase:', connected);
+          
+          if (connected === true) {
+            console.log('✅ Conectado a Firebase');
+            if (!isConnected) {
+              updateConnectionStatus('connected');
+              isConnected = true;
+            }
+          } else {
+            console.log('❌ Desconectado de Firebase');
+            updateConnectionStatus('disconnected');
+            isConnected = false;
+          }
+        });
+
+        console.log('✅ Listeners configurados correctamente');
+        
+      } catch (error) {
+        console.error('❌ Error configurando listeners:', error);
+        updateConnectionStatus('error');
+        handleAlert('error', `Error configurando conexión: ${error.message}`);
+      }
+    }
+
+    // Función para simular datos (para pruebas)
+    function simulateData() {
+      const simulatedData = {
+        nivel: Math.round(Math.random() * 100 * 10) / 10, // Nivel entre 0-100% con 1 decimal
+        estado_bomba: Math.random() > 0.5
+      };
+
+      const tankRef = ref(database, 'tanque/actual');
+      set(tankRef, simulatedData).then(() => {
+        console.log('Datos simulados enviados:', simulatedData);
+        handleAlert('info', `Datos simulados: ${simulatedData.nivel}% - Bomba ${simulatedData.estado_bomba ? 'ON' : 'OFF'}`);
+      }).catch(error => {
+        console.error('Error al simular datos:', error);
+        handleAlert('error', 'Error al enviar datos simulados');
+      });
+    }
+
+    // Función para generar burbujas en el tanque
+    function createBubble() {
+      const bubblesContainer = document.getElementById('bubblesContainer');
+      if (!bubblesContainer) return;
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      
+      const size = Math.random() * 8 + 4;
+      bubble.style.width = `${size}px`;
+      bubble.style.height = `${size}px`;
+      bubble.style.left = `${Math.random() * 90 + 5}%`;
+      bubble.style.animationDuration = `${Math.random() * 2 + 2}s`;
+      bubble.style.animationDelay = `${Math.random() * 1}s`;
+      
+      bubblesContainer.appendChild(bubble);
+      
+      // Remover burbuja después de la animación
+      setTimeout(() => {
+        if (bubble.parentNode) {
+          bubble.remove();
+        }
+      }, 5000);
+    }
+
+    // Función para verificar el estado del sistema
+    function healthCheck() {
+      const now = Date.now();
+      
+      // Verificar si hemos recibido datos recientemente
+      if (lastUpdate && (now - lastUpdate) > 60000) { // 1 minuto sin datos
+        handleAlert('warning', 'Sin datos recientes del sensor');
+      }
+
+      // Verificar estado de conexión
+      if (!isConnected) {
+        handleAlert('error', 'Sistema desconectado');
+      }
+    }
+
+    // Event listeners y inicialización
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('🚀 Página cargada, iniciando sistema...');
+      
+      // Verificar que los elementos críticos existan
+      const criticalElements = ['waterLevel', 'levelValue', 'lastUpdate', 'motorLight', 'waterStream', 'pumpValue'];
+      let missingElements = [];
+      
+      criticalElements.forEach(id => {
+        if (!document.getElementById(id)) {
+          missingElements.push(id);
+        }
+      });
+      
+      if (missingElements.length > 0) {
+        console.error('❌ Elementos faltantes:', missingElements);
+        handleAlert('error', `Elementos de interfaz faltantes: ${missingElements.join(', ')}`);
+      } else {
+        console.log('✅ Todos los elementos de interfaz encontrados');
+      }
+      
+      // Inicializar Firebase
+      console.log('🔄 Iniciando conexión a Firebase...');
+      connectToFirebase();
+      
+      // Iniciar generación de burbujas
+      setInterval(createBubble, 300);
+      
+      // Health check cada 30 segundos
+      setInterval(healthCheck, 30000);
+      
+      // Botón de simulación (para pruebas)
+      const simulateButton = document.getElementById('simulateButton');
+      if (simulateButton) {
+        simulateButton.addEventListener('click', () => {
+          console.log('🎯 Simulando datos...');
+          simulateData();
+        });
+        console.log('✅ Botón de simulación configurado');
+      } else {
+        console.error('❌ Botón de simulación no encontrado');
+      }
+
+      // Botón de reconexión
+      const reconnectButton = document.getElementById('reconnectButton');
+      if (reconnectButton) {
+        reconnectButton.addEventListener('click', () => {
+          console.log('🔄 Reconectando manualmente...');
+          reconnectAttempts = 0;
+          connectToFirebase();
+        });
+        console.log('✅ Botón de reconexión configurado');
+      } else {
+        console.error('❌ Botón de reconexión no encontrado');
+      }
+
+      console.log('✅ Sistema de control de tanque inicializado');
+      logSystemEvent('system_initialized');
+    });
+
+    // Hacer funciones disponibles globalmente para debugging
+    window.tankSystem = {
+      simulateData,
+      connectToFirebase,
+      systemState,
+      handleAlert
+    };
+  </script>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      color: #fff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    
+    h1 {
+      margin: 20px 0 20px 0;
+      font-size: 2.8rem;
+      text-shadow: 0 0 20px rgba(0, 191, 255, 0.8);
+      letter-spacing: 2px;
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 10px 20px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 25px;
+      backdrop-filter: blur(10px);
+    }
+
+    .connection-indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .connection-indicator.connected {
+      background: #00ff00;
+      box-shadow: 0 0 10px #00ff00;
+    }
+
+    .connection-indicator.disconnected {
+      background: #ff3333;
+      box-shadow: 0 0 10px #ff3333;
+    }
+
+    .connection-indicator.connecting {
+      background: #ffaa00;
+      box-shadow: 0 0 10px #ffaa00;
+    }
+
+    .connection-indicator.error {
+      background: #ff0066;
+      box-shadow: 0 0 10px #ff0066;
+    }
+
+    .alerts-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      max-width: 400px;
+    }
+
+    .alert {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
+      animation: slideIn 0.3s ease-out;
+    }
+
+    .alert-info {
+      background: rgba(0, 191, 255, 0.9);
+      border: 1px solid #00bfff;
+    }
+
+    .alert-warning {
+      background: rgba(255, 170, 0, 0.9);
+      border: 1px solid #ffaa00;
+    }
+
+    .alert-error {
+      background: rgba(255, 51, 51, 0.9);
+      border: 1px solid #ff3333;
+    }
+
+    .alert-close {
+      background: none;
+      border: none;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+      margin-left: auto;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .main-container {
+      display: flex;
+      gap: 30px;
+      align-items: flex-start;
+      position: relative;
+      margin-bottom: 50px;
+    }
+    
+    .tank-with-pump {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    
+    .pump-motor {
+      position: relative;
+      width: 120px;
+      height: 140px;
+      z-index: 10;
+    }
+    
+    .motor-body {
+      width: 100px;
+      height: 80px;
+      background: linear-gradient(145deg, #4a4a4a, #2a2a2a);
+      border-radius: 15px;
+      position: relative;
+      margin: 0 auto;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6), inset 0 2px 5px rgba(255, 255, 255, 0.1);
+      border: 3px solid #555;
+    }
+    
+    .motor-top {
+      width: 60px;
+      height: 30px;
+      background: linear-gradient(145deg, #666, #444);
+      border-radius: 10px 10px 0 0;
+      position: absolute;
+      top: -25px;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 2px solid #555;
+    }
+    
+    .motor-light {
+      width: 12px;
+      height: 12px;
+      background: #ff3333;
+      border-radius: 50%;
+      position: absolute;
+      top: 20px;
+      right: 15px;
+      box-shadow: 0 0 10px #ff3333;
+      transition: all 0.3s;
+    }
+    
+    .motor-light.active {
+      background: #00ff00;
+      box-shadow: 0 0 20px #00ff00, 0 0 30px #00ff00;
+      animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    
+    .outlet-pipe {
+      width: 20px;
+      height: 60px;
+      background: linear-gradient(to bottom, #888, #555);
+      position: absolute;
+      bottom: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-radius: 0 0 5px 5px;
+      border: 2px solid #444;
+    }
+    
+    .water-stream {
+      position: absolute;
+      bottom: -60px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 8px;
+      display: none;
+      z-index: 5;
+    }
+    
+    .water-stream.active {
+      display: block;
+    }
+    
+    .water-drop {
+      width: 8px;
+      height: 25px;
+      background: linear-gradient(to bottom, #00d4ff, #0088cc);
+      border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+      position: absolute;
+      animation: waterFall 0.8s linear infinite;
+      box-shadow: 0 0 8px rgba(0, 212, 255, 0.8);
+    }
+    
+    .water-drop:nth-child(1) { animation-delay: 0s; }
+    .water-drop:nth-child(2) { animation-delay: 0.2s; }
+    .water-drop:nth-child(3) { animation-delay: 0.4s; }
+    .water-drop:nth-child(4) { animation-delay: 0.6s; }
+    
+    @keyframes waterFall {
+      0% { top: 0; opacity: 1; }
+      100% { top: 380px; opacity: 0.3; }
+    }
+    
+    .tank-system {
+      display: flex;
+      gap: 20px;
+      align-items: flex-end;
+      position: relative;
+    }
+    
+    .tank-container {
+      position: relative;
+      width: 280px;
+      height: 400px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 4px solid #00bfff;
+      border-radius: 20px 20px 10px 10px;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), inset 0 0 30px rgba(0, 191, 255, 0.2);
+      backdrop-filter: blur(10px);
+    }
+    
+    .water-level {
+      position: absolute;
+      bottom: 0;
+      width: 100%;
+      background: linear-gradient(to top, #0066cc, #00aaff, #00d4ff);
+      transition: height 1.5s ease-out;
+      box-shadow: 0 -5px 30px rgba(0, 212, 255, 0.6);
+    }
+    
+    .water-surface {
+      position: absolute;
+      top: -3px;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.3);
+      animation: wave 2s ease-in-out infinite;
+    }
+    
+    @keyframes wave {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(5px); }
+    }
+    
+    .bubbles-container {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    
+    .bubble {
+      position: absolute;
+      background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.3));
+      border-radius: 50%;
+      animation: rise 3s ease-in infinite;
+    }
+    
+    @keyframes rise {
+      0% { bottom: 0; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { bottom: 100%; opacity: 0; }
+    }
+    
+    .percentage-bar {
+      width: 60px;
+      height: 400px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 5px 0;
+    }
+    
+    .percentage-mark {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      color: #00d4ff;
+      text-shadow: 0 0 5px rgba(0, 212, 255, 0.5);
+    }
+    
+    .mark-line {
+      width: 15px;
+      height: 2px;
+      background: #00d4ff;
+      box-shadow: 0 0 5px rgba(0, 212, 255, 0.5);
+    }
+    
+    .faucet-system {
+      position: absolute;
+      bottom: 0;
+      left: -80px;
+      width: 70px;
+      z-index: 5;
+    }
+    
+    .faucet {
+      width: 60px;
+      height: 50px;
+      background: linear-gradient(145deg, #c0c0c0, #808080);
+      border-radius: 8px;
+      position: relative;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+      border: 2px solid #999;
+    }
+    
+    .faucet-connection {
+      width: 25px;
+      height: 20px;
+      background: linear-gradient(to right, #a0a0a0, #707070);
+      position: absolute;
+      top: 50%;
+      right: -25px;
+      transform: translateY(-50%);
+      border: 2px solid #888;
+      border-left: none;
+    }
+    
+    .faucet-pipe {
+      width: 25px;
+      height: 40px;
+      background: linear-gradient(to right, #a0a0a0, #707070);
+      position: absolute;
+      bottom: -40px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-radius: 0 0 8px 8px;
+      border: 2px solid #888;
+    }
+    
+    .faucet-handle {
+      width: 35px;
+      height: 15px;
+      background: linear-gradient(to bottom, #4a90e2, #2e5c8a);
+      border-radius: 8px;
+      position: absolute;
+      top: 20px;
+      right: -40px;
+      border: 2px solid #1e3a5f;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      transition: transform 0.3s;
+      transform-origin: left center;
+    }
+    
+    .faucet-handle.active {
+      transform: rotate(90deg);
+    }
+    
+    .faucet-drops {
+      position: absolute;
+      bottom: -35px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 10px;
+      display: none;
+    }
+    
+    .faucet-drops.active {
+      display: block;
+    }
+    
+    .faucet-drop {
+      width: 10px;
+      height: 15px;
+      background: linear-gradient(to bottom, #00d4ff, #0088cc);
+      border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+      position: absolute;
+      animation: dropFall 1.2s ease-in infinite;
+      box-shadow: 0 0 5px rgba(0, 212, 255, 0.8);
+    }
+    
+    .faucet-drop:nth-child(1) { animation-delay: 0s; }
+    .faucet-drop:nth-child(2) { animation-delay: 0.4s; }
+    .faucet-drop:nth-child(3) { animation-delay: 0.8s; }
+    
+    @keyframes dropFall {
+      0% { top: 0; opacity: 1; transform: translateX(-50%) scale(1); }
+      100% { top: 100px; opacity: 0; transform: translateX(-50%) scale(0.5); }
+    }
+    
+    .info-panel {
+      background: rgba(0, 0, 0, 0.7);
+      border: 2px solid #00bfff;
+      border-radius: 15px;
+      padding: 25px 40px;
+      margin-top: 30px;
+      box-shadow: 0 0 30px rgba(0, 191, 255, 0.4);
+      backdrop-filter: blur(10px);
+      min-width: 600px;
+    }
+    
+    .status-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 30px;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .status-item {
+      text-align: center;
+    }
+    
+    .status-label {
+      font-size: 1rem;
+      color: #00d4ff;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    .status-value {
+      font-size: 2.2rem;
+      font-weight: bold;
+      text-shadow: 0 0 15px currentColor;
+    }
+    
+    .status-value.level {
+      color: #00ff88;
+    }
+    
+    .status-value.pump-on {
+      color: #00ff00;
+      animation: glow 1.5s ease-in-out infinite;
+    }
+    
+    .status-value.pump-off {
+      color: #ff3333;
+    }
+
+    .status-value.small {
+      font-size: 1.2rem;
+    }
+    
+    @keyframes glow {
+      0%, 100% { text-shadow: 0 0 15px currentColor; }
+      50% { text-shadow: 0 0 25px currentColor, 0 0 35px currentColor; }
+    }
+
+    .controls-panel {
+      display: flex;
+      gap: 15px;
+      margin-top: 20px;
+      justify-content: center;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: all 0.3s;
+      backdrop-filter: blur(10px);
+    }
+
+    .btn-primary {
+      background: rgba(0, 191, 255, 0.8);
+      color: white;
+      border: 1px solid #00bfff;
+    }
+
+    .btn-primary:hover {
+      background: rgba(0, 191, 255, 1);
+      box-shadow: 0 0 20px rgba(0, 191, 255, 0.5);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    
+    @media (max-width: 768px) {
+      h1 { font-size: 2rem; margin: 15px 0 25px 0; }
+      .main-container { flex-direction: column; align-items: center; gap: 20px; }
+      .tank-with-pump { order: 1; }
+      .tank-container { width: 220px; height: 320px; }
+      .percentage-bar { height: 320px; width: 50px; }
+      .pump-motor { width: 100px; height: 120px; }
+      .motor-body { width: 85px; height: 70px; }
+      .outlet-pipe { height: 50px; bottom: -50px; }
+      @keyframes waterFall { 0% { top: 0; opacity: 1; } 100% { top: 300px; opacity: 0.3; } }
+      .faucet-system { bottom: 0; left: -70px; }
+      .faucet { width: 50px; height: 45px; }
+      .faucet-connection { width: 20px; height: 18px; right: -20px; }
+      .faucet-handle { width: 25px; height: 10px; left: -30px; }
+      .faucet-pipe { width: 18px; height: 30px; bottom: -30px; }
+      .info-panel { padding: 20px 25px; min-width: unset; }
+      .status-row { grid-template-columns: 1fr; gap: 20px; }
+      .status-value { font-size: 1.8rem; }
+      .alerts-container { position: static; max-width: 100%; margin-bottom: 20px; }
+      .controls-panel { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="alerts-container" id="alertsContainer"></div>
+  
+  <div class="header">
+    <h1>💧 Sistema de Control de Tanque</h1>
+    <div class="connection-status">
+      <div class="connection-indicator disconnected" id="connectionStatus"></div>
+      <span id="connectionText">Desconectado</span>
+    </div>
+  </div>
+  
+  <div class="main-container">
+    <div class="tank-with-pump">
+      <div class="pump-motor">
+        <div class="motor-top"></div>
+        <div class="motor-body">
+          <div class="motor-light" id="motorLight"></div>
+        </div>
+        <div class="outlet-pipe"></div>
+        <div class="water-stream" id="waterStream">
+          <div class="water-drop"></div>
+          <div class="water-drop"></div>
+          <div class="water-drop"></div>
+          <div class="water-drop"></div>
+        </div>
+      </div>
+      
+      <div class="tank-system">
+        <div class="faucet-system">
+          <div class="faucet">
+            <div class="faucet-connection"></div>
+            <div class="faucet-handle" id="faucetHandle"></div>
+            <div class="faucet-pipe"></div>
+          </div>
+          <div class="faucet-drops" id="faucetDrops">
+            <div class="faucet-drop"></div>
+            <div class="faucet-drop"></div>
+            <div class="faucet-drop"></div>
+          </div>
+        </div>
+        
+        <div class="tank-container">
+          <div class="water-level" id="waterLevel">
+            <div class="water-surface"></div>
+          </div>
+          <div class="bubbles-container" id="bubblesContainer"></div>
+        </div>
+        
+        <div class="percentage-bar">
+          <div class="percentage-mark"><div class="mark-line"></div><span>100%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>90%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>80%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>70%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>60%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>50%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>40%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>30%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>20%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>10%</span></div>
+          <div class="percentage-mark"><div class="mark-line"></div><span>0%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="info-panel">
+    <div class="status-row">
+      <div class="status-item">
+        <div class="status-label">Nivel del Tanque</div>
+        <div class="status-value level" id="levelValue">0%</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Estado de Bomba</div>
+        <div class="status-value pump-off" id="pumpValue">APAGADA</div>
+      </div>
+      <div class="status-item">
+        <div class="status-label">Última Actualización</div>
+        <div class="status-value small" id="lastUpdate">--:--:--</div>
+      </div>
+    </div>
+    
+    <div class="controls-panel">
+      <button class="btn btn-primary" id="simulateButton">Simular Datos</button>
+      <button class="btn btn-secondary" id="reconnectButton">Reconectar</button>
+    </div>
+  </div>
+</body>
+</html>
