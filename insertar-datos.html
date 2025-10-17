@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Insertar Datos de Prueba</title>
+</head>
+<body>
+    <h1>Control Manual de Tanque</h1>
+    <p>Trabaja directamente con tu estructura: <code>tanque/actual/nivel</code> y <code>tanque/actual/estado_bomba</code></p>
+    
+    <div style="margin: 20px 0;">
+        <button id="insertData">Insertar Datos Completos</button>
+        <button id="updateLevel">Actualizar Solo Nivel</button>
+        <button id="togglePump">Cambiar Estado Bomba</button>
+    </div>
+    
+    <div style="margin: 20px 0;">
+        <label>Nivel manual: </label>
+        <input type="number" id="manualLevel" min="0" max="100" step="0.1" value="50" style="width: 100px;">
+        <span>%</span>
+        <button id="setManualLevel">Establecer Nivel</button>
+    </div>
+    
+    <div id="status" style="margin: 20px 0; padding: 10px; background: #f0f0f0; border-radius: 5px;"></div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js'
+        import { getDatabase, ref, set, get } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-database.js'
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCGo5VbKXDW1GNcejA66NDr0bemrq5glKA",
+            authDomain: "shiro-mierdas.firebaseapp.com",
+            databaseURL: "https://shiro-mierdas-default-rtdb.firebaseio.com",
+            projectId: "shiro-mierdas",
+            storageBucket: "shiro-mierdas.firebasestorage.app",
+            messagingSenderId: "510647911107",
+            appId: "1:510647911107:web:3e18610d8455cb0fed1876"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        // Función para insertar datos completos
+        document.getElementById('insertData').addEventListener('click', async () => {
+            try {
+                document.getElementById('status').innerHTML = 'Conectando a Firebase...';
+                
+                const testData = {
+                    tanque: {
+                        actual: {
+                            nivel: 75.3,
+                            estado_bomba: true
+                        }
+                    }
+                };
+
+                await set(ref(database, '/'), testData);
+                document.getElementById('status').innerHTML = '✅ Datos insertados correctamente! Nivel: 75.3%, Bomba: Encendida';
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Error: ' + error.message;
+                console.error(error);
+            }
+        });
+
+        // Función para actualizar solo el nivel
+        document.getElementById('updateLevel').addEventListener('click', async () => {
+            try {
+                const randomLevel = Math.round(Math.random() * 100 * 10) / 10;
+                await set(ref(database, 'tanque/actual/nivel'), randomLevel);
+                document.getElementById('status').innerHTML = `✅ Nivel actualizado a: ${randomLevel}%`;
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Error: ' + error.message;
+            }
+        });
+
+        // Función para cambiar estado de la bomba
+        document.getElementById('togglePump').addEventListener('click', async () => {
+            try {
+                // Primero leer el estado actual
+                const currentRef = ref(database, 'tanque/actual/estado_bomba');
+                const snapshot = await get(currentRef);
+                const currentState = snapshot.val() || false;
+                const newState = !currentState;
+                
+                await set(currentRef, newState);
+                document.getElementById('status').innerHTML = `✅ Bomba ${newState ? 'ENCENDIDA' : 'APAGADA'}`;
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Error: ' + error.message;
+            }
+        });
+
+        // Función para establecer nivel manual
+        document.getElementById('setManualLevel').addEventListener('click', async () => {
+            try {
+                const level = parseFloat(document.getElementById('manualLevel').value);
+                if (level < 0 || level > 100) {
+                    document.getElementById('status').innerHTML = '❌ El nivel debe estar entre 0 y 100';
+                    return;
+                }
+                
+                await set(ref(database, 'tanque/actual/nivel'), level);
+                document.getElementById('status').innerHTML = `✅ Nivel establecido manualmente: ${level}%`;
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html>

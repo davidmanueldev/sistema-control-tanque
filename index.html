@@ -136,12 +136,19 @@
 
     // Función para actualizar la interfaz
     function updateInterface(data) {
-      if (!data) return;
+      console.log('🎨 Actualizando interfaz con datos:', data);
+      
+      if (!data) {
+        console.log('⚠️ No hay datos para actualizar la interfaz');
+        return;
+      }
 
       // Trabajar directamente con tu estructura: nivel y estado_bomba
       const nivel = data.nivel || 0;
       const estadoBomba = data.estado_bomba || false;
       const timestamp = new Date().toISOString();
+
+      console.log(`📊 Procesando: Nivel=${nivel}%, Bomba=${estadoBomba ? 'ON' : 'OFF'}`);
 
       // Actualizar estado del sistema
       systemState.waterLevel = nivel;
@@ -149,23 +156,63 @@
       systemState.lastUpdated = timestamp;
 
       // Actualizar elementos visuales
-      document.getElementById('waterLevel').style.height = `${nivel}%`;
-      document.getElementById('levelValue').textContent = `${nivel.toFixed(1)}%`;
-      document.getElementById('lastUpdate').textContent = new Date().toLocaleString();
+      const waterLevelElement = document.getElementById('waterLevel');
+      const levelValueElement = document.getElementById('levelValue');
+      const lastUpdateElement = document.getElementById('lastUpdate');
+      
+      if (waterLevelElement) {
+        waterLevelElement.style.height = `${nivel}%`;
+        console.log(`✅ Nivel visual actualizado: ${nivel}%`);
+      } else {
+        console.error('❌ Elemento waterLevel no encontrado');
+      }
+      
+      if (levelValueElement) {
+        levelValueElement.textContent = `${nivel.toFixed(1)}%`;
+        console.log(`✅ Valor de nivel actualizado: ${nivel.toFixed(1)}%`);
+      } else {
+        console.error('❌ Elemento levelValue no encontrado');
+      }
+      
+      if (lastUpdateElement) {
+        lastUpdateElement.textContent = new Date().toLocaleString();
+        console.log('✅ Timestamp actualizado');
+      } else {
+        console.error('❌ Elemento lastUpdate no encontrado');
+      }
 
       // Estado de la bomba
       const motorLight = document.getElementById('motorLight');
       const waterStream = document.getElementById('waterStream');
       const pumpValue = document.getElementById('pumpValue');
 
-      motorLight.classList.toggle('active', estadoBomba);
-      waterStream.classList.toggle('active', estadoBomba);
-      pumpValue.textContent = estadoBomba ? 'ENCENDIDA' : 'APAGADA';
-      pumpValue.className = `status-value pump-${estadoBomba ? 'on' : 'off'}`;
+      if (motorLight) {
+        motorLight.classList.toggle('active', estadoBomba);
+        console.log(`✅ Motor light: ${estadoBomba ? 'ON' : 'OFF'}`);
+      }
+      
+      if (waterStream) {
+        waterStream.classList.toggle('active', estadoBomba);
+        console.log(`✅ Water stream: ${estadoBomba ? 'ON' : 'OFF'}`);
+      }
+      
+      if (pumpValue) {
+        pumpValue.textContent = estadoBomba ? 'ENCENDIDA' : 'APAGADA';
+        pumpValue.className = `status-value pump-${estadoBomba ? 'on' : 'off'}`;
+        console.log(`✅ Pump status: ${estadoBomba ? 'ENCENDIDA' : 'APAGADA'}`);
+      }
 
       // Grifo (opuesto a la bomba para mostrar drenaje)
-      document.getElementById('faucetHandle').classList.toggle('active', !estadoBomba);
-      document.getElementById('faucetDrops').classList.toggle('active', !estadoBomba);
+      const faucetHandle = document.getElementById('faucetHandle');
+      const faucetDrops = document.getElementById('faucetDrops');
+      
+      if (faucetHandle) {
+        faucetHandle.classList.toggle('active', !estadoBomba);
+      }
+      
+      if (faucetDrops) {
+        faucetDrops.classList.toggle('active', !estadoBomba);
+      }
 
       // Verificar alertas
       checkAlerts(nivel, estadoBomba);
@@ -173,7 +220,7 @@
       lastUpdate = Date.now();
       
       // Log de datos recibidos
-      console.log('Datos actualizados:', { nivel, estadoBomba, timestamp });
+      console.log('✅ Interfaz actualizada completamente:', { nivel, estadoBomba, timestamp });
     }
 
     // Función para verificar alertas del sistema
@@ -199,20 +246,26 @@
       try {
         updateConnectionStatus('connecting');
         logSystemEvent('connecting_to_firebase');
+        console.log('🔄 Iniciando conexión a Firebase...');
+        
+        // Verificar que Firebase esté inicializado
+        if (!database) {
+          throw new Error('Database no inicializada');
+        }
         
         // Conectar directamente sin autenticación
-        updateConnectionStatus('connected');
-        logSystemEvent('firebase_connected');
+        console.log('✅ Firebase inicializado, iniciando listeners...');
         startDataListener();
 
       } catch (error) {
-        console.error('Error de conexión a Firebase:', error);
+        console.error('❌ Error de conexión a Firebase:', error);
         updateConnectionStatus('error');
         logSystemEvent('connection_error', { error: error.message });
         
         // Intentar reconectar
         if (reconnectAttempts < maxReconnectAttempts) {
           reconnectAttempts++;
+          console.log(`🔄 Reintento ${reconnectAttempts}/${maxReconnectAttempts} en ${5000 * reconnectAttempts}ms`);
           setTimeout(() => {
             connectToFirebase();
           }, 5000 * reconnectAttempts); // Backoff exponencial
@@ -222,29 +275,64 @@
 
     // Función para iniciar el listener de datos
     function startDataListener() {
-      const tankRef = ref(database, 'tanque/actual');
+      console.log('🔄 Configurando listeners de datos...');
       
-      onValue(tankRef, (snapshot) => {
-        const datos = snapshot.val();
-        if (datos) {
-          updateInterface(datos);
-          logSystemEvent('data_received', datos);
-        }
-      }, (error) => {
-        console.error('Error al leer datos:', error);
-        updateConnectionStatus('error');
-        handleAlert('error', 'Error al obtener datos del servidor');
-      });
+      try {
+        // Listener principal de datos del tanque
+        const tankRef = ref(database, 'tanque/actual');
+        
+        onValue(tankRef, (snapshot) => {
+          const datos = snapshot.val();
+          console.log('📡 Datos recibidos:', datos);
+          
+          if (datos) {
+            updateInterface(datos);
+            logSystemEvent('data_received', datos);
+            
+            // Marcar como conectado si recibimos datos
+            if (!isConnected) {
+              updateConnectionStatus('connected');
+              logSystemEvent('firebase_connected');
+              isConnected = true;
+              reconnectAttempts = 0; // Reset intentos de reconexión
+            }
+          } else {
+            console.log('⚠️ No hay datos en tanque/actual');
+            handleAlert('warning', 'No hay datos disponibles en el servidor');
+          }
+        }, (error) => {
+          console.error('❌ Error al leer datos:', error);
+          updateConnectionStatus('error');
+          handleAlert('error', `Error al obtener datos: ${error.message}`);
+          isConnected = false;
+        });
 
-      // Monitor de conexión
-      const connectedRef = ref(database, '.info/connected');
-      onValue(connectedRef, (snapshot) => {
-        if (snapshot.val() === true) {
-          updateConnectionStatus('connected');
-        } else {
-          updateConnectionStatus('disconnected');
-        }
-      });
+        // Monitor de conexión de Firebase
+        const connectedRef = ref(database, '.info/connected');
+        onValue(connectedRef, (snapshot) => {
+          const connected = snapshot.val();
+          console.log('🔗 Estado de conexión Firebase:', connected);
+          
+          if (connected === true) {
+            console.log('✅ Conectado a Firebase');
+            if (!isConnected) {
+              updateConnectionStatus('connected');
+              isConnected = true;
+            }
+          } else {
+            console.log('❌ Desconectado de Firebase');
+            updateConnectionStatus('disconnected');
+            isConnected = false;
+          }
+        });
+
+        console.log('✅ Listeners configurados correctamente');
+        
+      } catch (error) {
+        console.error('❌ Error configurando listeners:', error);
+        updateConnectionStatus('error');
+        handleAlert('error', `Error configurando conexión: ${error.message}`);
+      }
     }
 
     // Función para simular datos (para pruebas)
@@ -306,7 +394,27 @@
 
     // Event listeners y inicialización
     document.addEventListener('DOMContentLoaded', function() {
+      console.log('🚀 Página cargada, iniciando sistema...');
+      
+      // Verificar que los elementos críticos existan
+      const criticalElements = ['waterLevel', 'levelValue', 'lastUpdate', 'motorLight', 'waterStream', 'pumpValue'];
+      let missingElements = [];
+      
+      criticalElements.forEach(id => {
+        if (!document.getElementById(id)) {
+          missingElements.push(id);
+        }
+      });
+      
+      if (missingElements.length > 0) {
+        console.error('❌ Elementos faltantes:', missingElements);
+        handleAlert('error', `Elementos de interfaz faltantes: ${missingElements.join(', ')}`);
+      } else {
+        console.log('✅ Todos los elementos de interfaz encontrados');
+      }
+      
       // Inicializar Firebase
+      console.log('🔄 Iniciando conexión a Firebase...');
       connectToFirebase();
       
       // Iniciar generación de burbujas
@@ -318,19 +426,29 @@
       // Botón de simulación (para pruebas)
       const simulateButton = document.getElementById('simulateButton');
       if (simulateButton) {
-        simulateButton.addEventListener('click', simulateData);
+        simulateButton.addEventListener('click', () => {
+          console.log('🎯 Simulando datos...');
+          simulateData();
+        });
+        console.log('✅ Botón de simulación configurado');
+      } else {
+        console.error('❌ Botón de simulación no encontrado');
       }
 
       // Botón de reconexión
       const reconnectButton = document.getElementById('reconnectButton');
       if (reconnectButton) {
         reconnectButton.addEventListener('click', () => {
+          console.log('🔄 Reconectando manualmente...');
           reconnectAttempts = 0;
           connectToFirebase();
         });
+        console.log('✅ Botón de reconexión configurado');
+      } else {
+        console.error('❌ Botón de reconexión no encontrado');
       }
 
-      console.log('Sistema de control de tanque inicializado');
+      console.log('✅ Sistema de control de tanque inicializado');
       logSystemEvent('system_initialized');
     });
 
