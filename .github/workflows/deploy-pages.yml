@@ -37,8 +37,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Subir la carpeta public
-          path: './public'
+          # Subir desde la raíz del repositorio
+          path: '.'
       
       - name: Deploy to GitHub Pages
         id: deployment
